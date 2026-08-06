@@ -41,9 +41,8 @@ st.sidebar.info(
 # 🛠️ 2. HÀM XỬ LÝ EX_TEST (KHÔNG DÙNG ** MARKDOWN)
 # ==========================================
 def process_ex_test_content(content: str) -> str:
-    """Tự động đếm số câu và định dạng đáp án A, B, C, D (Sử dụng văn bản thuần, không dùng **)"""
+    """Tự động đếm số câu và định dạng đáp án A, B, C, D (Sử dụng văn bản thuần)"""
     
-    # Thay thế \begin{ex}...\end{ex} và \begin{bt}...\end{bt} không kèm dấu **
     cau_counter = 0
     def replace_ex(match):
         nonlocal cau_counter
@@ -84,20 +83,3 @@ def process_ex_test_content(content: str) -> str:
 def convert_latex_to_word(latex_text: str, math_option: str, fix_ex_test: bool) -> bytes:
     if fix_ex_test:
         latex_text = process_ex_test_content(latex_text)
-
-    is_mathtype = "MathType" in math_option
-
-    # Bảo vệ công thức toán nếu chọn chế độ MathType
-    if is_mathtype:
-        latex_text = re.sub(r'\$\$(.*?)\$\$', r' MATHBLOCKSTART \1 MATHBLOCKEND ', latex_text, flags=re.DOTALL)
-        latex_text = re.sub(r'\$([^\$]+)\$', r' MATHINLINESTART \1 MATHINLINEEND ', latex_text)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        input_path = os.path.join(tmpdir, "input.tex")
-        output_path = os.path.join(tmpdir, "output.docx")
-
-        with open(input_path, "w", encoding="utf-8") as f:
-            f.write(latex_text)
-
-        # Chạy lệnh Pandoc chuyển đổi
-        cmd =
