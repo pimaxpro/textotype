@@ -6,18 +6,44 @@ import streamlit as st
 from docx import Document
 
 st.set_page_config(
-    page_title="Chuyển đổi LaTeX sang MathType Word Pro",
+    page_title="Tool Chuẩn Hóa LaTeX sang Word",
     page_icon="📝",
     layout="wide"
 )
 
-st.title("📝 Chuyển đổi LaTeX (ex_test) sang Word Pro (Auto-MathType)")
-st.write("Chuyển đổi đề thi LaTeX sang Word. File sẽ **tự động chạy Toggle TeX sang MathType** ngay khi bạn mở file lên!")
+st.title("📝 Tool Chuẩn Hóa LaTeX (ex_test) sang Word Pro")
+st.write("Ứng dụng hỗ trợ chuyển đổi đề thi LaTeX sang Word chuẩn đẹp, tích hợp xử lý gói `ex_test` và MathType.")
 
-clean_ex_test = st.sidebar.checkbox("Chuẩn hóa gói ex_test (Câu 1, A, B, C, D)", value=True)
+# ==========================================
+# ⚙️ 1. SIDEBAR CẤU HÌNH CÁC CHỨC NĂNG
+# ==========================================
+st.sidebar.header("⚙️ Cấu hình xuất file")
 
-# --- HÀM XỬ LÝ EX_TEST ---
+math_format = st.sidebar.radio(
+    "Định dạng công thức toán:",
+    ["Word Equation (OMML)", "MathType (Tự động / Toggle TeX)"],
+    help="• Word Equation: Công thức hiển thị sẵn ở dạng toán học chuẩn của Word.\n• MathType: Giữ mã $...$ để tự động chuyển thành MathType khi mở Word."
+)
+
+clean_ex_test = st.sidebar.checkbox(
+    "Xử lý chuẩn hóa gói ex_test", 
+    value=True, 
+    help="Tự động đánh số Câu 1, Câu 2... và tách rõ các đáp án A, B, C, D."
+)
+
+st.sidebar.markdown("---")
+st.sidebar.info(
+    "💡 **Mẹo cho MathType:** Nếu chọn chế độ MathType, khi mở file Word bạn chỉ cần nhấn **Alt + \\** (hoặc dùng Macro AutoExec) để toàn bộ công thức tự hóa thành MathType gốc."
+)
+
+
+# ==========================================
+# 🛠️ 2. HÀM XỬ LÝ CHUYÊN SÂU EX_TEST
+# ==========================================
 def process_ex_test_content(content: str) -> str:
+    """Tự động đếm số câu và định dạng đáp án A, B, C, D chuẩn đẹp"""
+    
+    # Đếm và thay thế \begin{ex}...\end{ex} và \begin{bt}...\end{bt}
     cau_counter = 0
     def replace_ex(match):
         nonlocal cau_counter
@@ -27,7 +53,18 @@ def process_ex_test_content(content: str) -> str:
     content = re.sub(r'\\begin\{ex\}', replace_ex, content)
     content = re.sub(r'\\end\{ex\}', r'\n', content)
     
+    bt_counter = 0
+    def replace_bt(match):
+        nonlocal bt_counter
+        bt_counter += 1
+        return f"\n\n**Bài {bt_counter}.** "
+
+    content = re.sub(r'\\begin\{bt\}', replace_bt, content)
+    content = re.sub(r'\\end\{bt\}', r'\n', content)
+
+    # Tách 4 đáp án trong lệnh \choice {A}{B}{C}{D}
     choice_pattern = r'\\choice\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}'
+    
     def replace_choice(m):
         a = re.sub(r'\\True\s*', '', m.group(1).strip())
         b = re.sub(r'\\True\s*', '', m.group(2).strip())
@@ -37,16 +74,24 @@ def process_ex_test_content(content: str) -> str:
 
     content = re.sub(choice_pattern, replace_choice, content, flags=re.DOTALL)
     content = re.sub(r'\\True\s*', '**(Đúng)** ', content)
+
     return content
 
-# --- HÀM TẠO FILE DOCM CHỨA MACRO AUTO-TOGGLE TEX ---
-def convert_latex_to_automathtype_docm(latex_text: str, fix_ex_test: bool) -> bytes:
+
+# ==========================================
+# 🔄 3. HÀM CHUYỂN ĐỔI LATEX SANG WORD
+# ==========================================
+def convert_latex_to_word(latex_text: str, math_option: str, fix_ex_test: bool) -> bytes:
+    # Bước 1: Tiền xử lý ex_test nếu người dùng chọn
     if fix_ex_test:
         latex_text = process_ex_test_content(latex_text)
 
-    # Bảo vệ công thức để giữ nguyên $...$ làm dạng chữ thường
-    latex_text = re.sub(r'\$\$(.*?)\$\$', r' MATHBLOCKSTART \1 MATHBLOCKEND ', latex_text, flags=re.DOTALL)
-    latex_text = re.sub(r'\$([^\$]+)\$', r' MATHINLINESTART \1 MATHINLINEEND ', latex_text)
+    is_mathtype = "MathType" in math_option
+
+    # Bước 2: Bảo vệ công thức toán nếu chọn chế độ MathType (Tránh Pandoc ép sang OMML)
+    if is_mathtype:
+        latex_text = re.sub(r'\$\$(.*?)\$\$', r' MATHBLOCKSTART \1 MATHBLOCKEND ', latex_text, flags=re.DOTALL)
+        latex_text = re.sub(r'\$([^\$]+)\$', r' MATHINLINESTART \1 MATHINLINEEND ', latex_text)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path = os.path.join(tmpdir, "input.tex")
@@ -55,31 +100,39 @@ def convert_latex_to_automathtype_docm(latex_text: str, fix_ex_test: bool) -> by
         with open(input_path, "w", encoding="utf-8") as f:
             f.write(latex_text)
 
-        # Chạy Pandoc xuất ra docx
+        # Chạy lệnh Pandoc chuyển đổi
         cmd = ["pandoc", input_path, "-o", output_path]
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
             raise Exception(result.stderr)
 
-        # Khôi phục công thức về $...$ chuẩn cho MathType
-        doc = Document(output_path)
-        for p in doc.paragraphs:
-            if "MATHBLOCKSTART" in p.text or "MATHINLINESTART" in p.text:
-                new_text = p.text
-                new_text = re.sub(r'MATHBLOCKSTART\s*(.*?)\s*MATHBLOCKEND', r'$$\1$$', new_text)
-                new_text = re.sub(r'MATHINLINESTART\s*(.*?)\s*MATHINLINEEND', r'$\1$', new_text)
-                p.text = new_text
-
-        doc.save(output_path)
+        # Khôi phục ký tự $...$ cho MathType
+        if is_mathtype:
+            doc = Document(output_path)
+            for p in doc.paragraphs:
+                if "MATHBLOCKSTART" in p.text or "MATHINLINESTART" in p.text:
+                    new_text = p.text
+                    new_text = re.sub(r'MATHBLOCKSTART\s*(.*?)\s*MATHBLOCKEND', r'$$\1$$', new_text)
+                    new_text = re.sub(r'MATHINLINESTART\s*(.*?)\s*MATHINLINEEND', r'$\1$', new_text)
+                    p.text = new_text
+            doc.save(output_path)
 
         with open(output_path, "rb") as f:
             return f.read()
 
-# --- GIAO DIỆN CHÍNH ---
-latex_input = st.text_area("Dán mã LaTeX vào đây:", height=300, value=r"""\documentclass{article}
+
+# ==========================================
+# 🖥️ 4. GIAO DIỆN CHÍNH (EDITOR & UPLOAD)
+# ==========================================
+tab1, tab2 = st.tabs(["✍️ Editor Nhập Mã LaTeX", "📁 Tải File LaTeX (.tex)"])
+
+latex_input = ""
+
+default_code = r"""\documentclass{article}
 \usepackage{ex_test}
 \begin{document}
+
 \begin{ex}
     Nghiệm của phương trình $x^2 - 4x + 3 = 0$ là:
     \choice
@@ -88,20 +141,51 @@ latex_input = st.text_area("Dán mã LaTeX vào đây:", height=300, value=r"""\
     {$x = 1; x = -3$}
     {$x = -1; x = 3$}
 \end{ex}
-\end{document}""")
 
-if st.button("🚀 Chuyển đổi sang Word (Tự động MathType)", type="primary", use_container_width=True):
-    if latex_input.strip():
-        with st.spinner("Đang khởi tạo file Word tự động Toggle TeX..."):
+\begin{ex}
+    Cho hàm số $y = f(x)$ có bảng biến thiên như hình vẽ.
+    \choice
+    {$a = 2$}
+    {$a = 4$}
+    {$a = 1$}
+    {$a = 0$}
+\end{ex}
+
+\end{document}"""
+
+with tab1:
+    st.subheader("Nhập hoặc dán mã LaTeX vào đây:")
+    latex_input = st.text_area("Khung soạn thảo LaTeX:", value=default_code, height=320)
+
+with tab2:
+    st.subheader("Tải file `.tex` từ máy tính:")
+    uploaded_file = st.file_uploader("Chọn file LaTeX của bạn", type=["tex"])
+    if uploaded_file is not None:
+        latex_input = uploaded_file.read().decode("utf-8")
+        st.success(f"✅ Đã tải file lên thành công: **{uploaded_file.name}**")
+
+
+# ==========================================
+# 🚀 5. NÚT XỬ LÝ VÀ TẢI FILE VỀ
+# ==========================================
+st.divider()
+
+if st.button("🚀 Bắt đầu chuyển đổi sang Word", type="primary", use_container_width=True):
+    if not latex_input.strip():
+        st.warning("⚠️ Vui lòng nhập mã LaTeX vào Editor hoặc tải file .tex lên trước!")
+    else:
+        with st.spinner("Đang xử lý chuẩn hóa nội dung và công thức..."):
             try:
-                docx_bytes = convert_latex_to_automathtype_docm(latex_input, clean_ex_test)
-                st.success("🎉 Đã tạo file thành công!")
+                docx_bytes = convert_latex_to_word(latex_input, math_format, clean_ex_test)
+                
+                st.success("🎉 Chuyển đổi thành công!")
                 st.download_button(
-                    label="📥 Tải file Word về máy",
+                    label="📥 Tải file Word (.docx) về máy",
                     data=docx_bytes,
-                    file_name="DeThi_AutoMathType.docx",
+                    file_name="DeThi_ExTest_Converted.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )
             except Exception as e:
-                st.error(f"❌ Lỗi: {str(e)}")
+                st.error("❌ Đã xảy ra lỗi trong quá trình chuyển đổi:")
+                st.code(str(e))
