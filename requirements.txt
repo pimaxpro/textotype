@@ -1,1 +1,5 @@
 streamlit
+streamlit-code-editor
+python-docx
+sympy
+latex2mathml
