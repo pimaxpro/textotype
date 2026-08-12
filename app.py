@@ -38,11 +38,12 @@ st.sidebar.info(
 
 
 # ==========================================
-# 🛠️ 2. HÀM XỬ LÝ EX_TEST
+# 🛠️ 2. HÀM XỬ LÝ EX_TEST (ĐÃ SỬA LỖI REGEX CHOICE)
 # ==========================================
 def process_ex_test_content(content: str) -> str:
-    """Tự động đếm số câu và định dạng đáp án A, B, C, D (Sử dụng văn bản thuần)"""
+    """Tự động đếm số câu và định dạng đáp án A, B, C, D an toàn"""
     
+    # 1. Đổi môi trường \begin{ex} ... \end{ex}
     cau_counter = 0
     def replace_ex(match):
         nonlocal cau_counter
@@ -52,6 +53,7 @@ def process_ex_test_content(content: str) -> str:
     content = re.sub(r'\\begin\{ex\}', replace_ex, content)
     content = re.sub(r'\\end\{ex\}', r'\n', content)
     
+    # 2. Đổi môi trường \begin{bt} ... \end{bt}
     bt_counter = 0
     def replace_bt(match):
         nonlocal bt_counter
@@ -61,22 +63,53 @@ def process_ex_test_content(content: str) -> str:
     content = re.sub(r'\\begin\{bt\}', replace_bt, content)
     content = re.sub(r'\\end\{bt\}', r'\n', content)
 
-    # Tách 4 đáp án trong lệnh \choice {A}{B}{C}{D}
-    choice_pattern = r'\\choice\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}'
-    
-    def replace_choice(m):
-        a = re.sub(r'\\True\s*', '', m.group(1).strip())
-        b = re.sub(r'\\True\s*', '', m.group(2).strip())
-        c = re.sub(r'\\True\s*', '', m.group(3).strip())
-        d = re.sub(r'\\True\s*', '', m.group(4).strip())
-        return f"\n\nA. {a}\n\nB. {b}\n\nC. {c}\n\nD. {d}\n"
+    # 3. Xử lý \choice với thuật toán đếm ngoặc {} an toàn 100%
+    def parse_choices(text):
+        pos = 0
+        while True:
+            match = re.search(r'\\choice', text[pos:])
+            if not match:
+                break
+            
+            start_idx = pos + match.start()
+            curr = pos + match.end()
+            args = []
+            
+            # Bóc tách đúng 4 nhóm ngoặc nhọn {...}
+            for _ in range(4):
+                while curr < len(text) and text[curr].isspace():
+                    curr += 1
+                if curr < len(text) and text[curr] == '{':
+                    depth = 1
+                    arg_start = curr + 1
+                    curr += 1
+                    while curr < len(text) and depth > 0:
+                        if text[curr] == '{':
+                            depth += 1
+                        elif text[curr] == '}':
+                            depth -= 1
+                        curr += 1
+                    args.append(text[arg_start:curr-1])
+                else:
+                    break
+            
+            if len(args) == 4:
+                # Làm sạch \True trong đáp án
+                clean_args = [re.sub(r'\\True\s*', '', arg).strip() for arg in args]
+                replacement = f"\n\nA. {clean_args[0]}\n\nB. {clean_args[1]}\n\nC. {clean_args[2]}\n\nD. {clean_args[3]}\n"
+                text = text[:start_idx] + replacement + text[curr:]
+                pos = start_idx + len(replacement)
+            else:
+                pos = start_idx + 7
+                
+        return text
 
-    content = re.sub(choice_pattern, replace_choice, content, flags=re.DOTALL)
+    content = parse_choices(content)
     content = re.sub(r'\\True\s*', '(Đúng) ', content)
 
-    # Lọc bỏ các thẻ khai báo đầu/cuối file LaTeX gây lỗi cho Pandoc
-    content = re.sub(r'\\documentclass.*', '', content)
-    content = re.sub(r'\\usepackage.*', '', content)
+    # Bỏ bớt khai báo gói LaTeX dư thừa để Pandoc không bị rối
+    content = re.sub(r'\\documentclass.*?\n', '', content)
+    content = re.sub(r'\\usepackage.*?\n', '', content)
     content = re.sub(r'\\begin\{document\}', '', content)
     content = re.sub(r'\\end\{document\}', '', content)
 
@@ -104,14 +137,14 @@ def convert_latex_to_word(latex_text: str, math_option: str, fix_ex_test: bool) 
         with open(input_path, "w", encoding="utf-8") as f:
             f.write(latex_text)
 
-        # Đảm bảo Pandoc đọc đúng định dạng latex đầu vào và xuất ra docx
-        cmd = ["pandoc", "-f", "latex", "-t", "docx", input_path, "-o", output_path]
+        # Lệnh Pandoc thực thi chuyển đổi sang DOCX
+        cmd = ["pandoc", input_path, "-o", output_path]
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
             raise Exception(result.stderr)
 
-        # Đọc file Word xuất ra để xử lý khôi phục công thức và IN ĐẬM chuẩn cho Word
+        # Đọc file Word xuất ra để xử lý khôi phục công thức và IN ĐẬM
         doc = Document(output_path)
         for p in doc.paragraphs:
             text = p.text
