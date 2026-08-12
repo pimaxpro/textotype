@@ -100,7 +100,7 @@ def process_image_with_gemini(image: Image.Image, api_key: str) -> str:
     Hãy nhận dạng toàn bộ văn bản và công thức trong bức ảnh sau.
     Yêu cầu:
     1. Giữ nguyên cấu trúc các câu hỏi và các đáp án A, B, C, D.
-    2. Nếu cấu trúc câu hỏi có dạng \begin{ex} ... \choice{A}{B}{C}{D} \end{ex} hoặc văn bản thường, hãy giữ nguyên hoặc xuất về định dạng LaTeX chuẩn kẹp công thức trong $...$ (inline) hoặc $$...$$ (display).
+    2. Nếu cấu trúc câu hỏi có dạng \\begin{ex} ... \\choice{A}{B}{C}{D} \\end{ex} hoặc văn bản thường, hãy giữ nguyên hoặc xuất về định dạng LaTeX chuẩn kẹp công thức trong $...$ (inline) hoặc $$...$$ (display).
     3. Nếu có bảng biến thiên, hãy sử dụng gói tkz-tab để vẽ lại.
     4. Chỉ trả về mã LaTeX, tuyệt đối không giải thích thêm hay bọc mã trong block ```latex.
     """
@@ -121,80 +121,4 @@ def convert_latex_to_word(latex_text: str, math_option: str, fix_ex_test: bool) 
     # Bảo vệ công thức toán nếu chọn chế độ MathType
     if is_mathtype:
         latex_text = re.sub(r'\$\$(.*?)\$\$', r' MATHBLOCKSTART \1 MATHBLOCKEND ', latex_text, flags=re.DOTALL)
-        latex_text = re.sub(r'\$([^\$]+)\$', r' MATHINLINESTART \1 MATHINLINEEND ', latex_text)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        input_path = os.path.join(tmpdir, "input.tex")
-        output_path = os.path.join(tmpdir, "output.docx")
-
-        with open(input_path, "w", encoding="utf-8") as f:
-            f.write(latex_text)
-
-        # Lệnh Pandoc chuẩn bị thực thi
-        cmd = ["pandoc", input_path, "-o", output_path]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            raise Exception(result.stderr)
-
-        # Đọc file Word xuất ra để xử lý khôi phục công thức và IN ĐẬM
-        doc = Document(output_path)
-        for p in doc.paragraphs:
-            text = p.text
-            
-            # Khôi phục công thức $...$ cho MathType
-            if is_mathtype and ("MATHBLOCKSTART" in text or "MATHINLINESTART" in text):
-                text = re.sub(r'MATHBLOCKSTART\s*(.*?)\s*MATHBLOCKEND', r'$$\1$$', text)
-                text = re.sub(r'MATHINLINESTART\s*(.*?)\s*MATHINLINEEND', r'$\1$', text)
-                p.text = text
-
-            # Tự động tìm và IN ĐẬM các nhãn "Câu X.", "Bài X.", "A.", "B.", "C.", "D."
-            pattern = r'^(Câu\s+\d+\.|Bài\s+\d+\.|[A-D]\.)'
-            match = re.match(pattern, p.text.strip())
-            if match:
-                prefix = match.group(1)
-                rest = p.text.strip()[len(prefix):]
-                p.text = "" 
-                
-                run_bold = p.add_run(prefix)
-                run_bold.bold = True
-                p.add_run(rest)
-
-        doc.save(output_path)
-
-        with open(output_path, "rb") as f:
-            return f.read()
-
-
-# ==========================================
-# 🖥️ 5. GIAO DIỆN CHÍNH (OCR, EDITOR & UPLOAD)
-# ==========================================
-tab_ocr, tab1, tab2 = st.tabs([
-    "📸 OCR Ảnh Đề Toán (Gemini)", 
-    "✍️ Editor Nhập Mã LaTeX", 
-    "📁 Tải File LaTeX (.tex)"
-])
-
-# Trạng thái mã LaTeX chung giữa các Tab
-if "latex_content" not in st.session_state:
-    st.session_state.latex_content = r"""\documentclass{article}
-\usepackage{ex_test}
-\begin{document}
-
-\begin{ex}
-    Nghiệm của phương trình $x^2 - 4x + 3 = 0$ là:
-    \choice
-    {$x = 1; x = 3$}
-    {$x = -1; x = -3$}
-    {$x = 1; x = -3$}
-    {$x = -1; x = 3$}
-\end{ex}
-
-\end{document}"""
-
-# --- TAB 1: OCR ẢNH ---
-with tab_ocr:
-    st.subheader("📸 Tải ảnh hoặc chụp ảnh đề toán:")
-    uploaded_img = st.file_uploader("Chọn file ảnh (PNG, JPG, JPEG)", type=["png", "jpg", "jpeg"])
-    
-    if uploaded_img is
+        latex_text =
