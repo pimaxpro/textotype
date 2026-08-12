@@ -3,3 +3,5 @@ streamlit-code-editor
 python-docx
 sympy
 latex2mathml
+google-generativeai
+Pillow
